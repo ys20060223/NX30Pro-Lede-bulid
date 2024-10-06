@@ -1,48 +1,42 @@
-#
-# Copyright (c) 2019-2020 P3TERX <https://p3terx.com>
-#
-# This is free software, licensed under the MIT License.
-# See /LICENSE for more information.
-#
-# https://github.com/P3TERX/Actions-OpenWrt
-# Description: Build OpenWrt using GitHub Actions
-#
-
+# 定义工作流名称
 name: Build OpenWrt
 
+# 定义触发工作流的条件
 on:
-  repository_dispatch:
-  workflow_dispatch:
+  repository_dispatch:  # 当仓库接收到dispatch事件时触发
+  workflow_dispatch:    # 当手动触发工作流时
     inputs:
       ssh:
         description: 'SSH connection to Actions'
         required: false
         default: 'false'
   watch:
-    types: [started]
-    
-env:
-  REPO_URL: https://github.com/coolsnowwolf/lede
-  REPO_BRANCH: master
-  UPLOAD_BIN_DIR: true
-  UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: true
-  DIY_SH: diy.sh
-  TZ: Asia/Shanghai
+    types: [started]    # 当有人开始watch仓库时触发
 
+# 设置环境变量
+env:
+  REPO_URL: https://github.com/coolsnowwolf/lede   # 源代码仓库地址
+  REPO_BRANCH: master                              # 分支名称
+  UPLOAD_BIN_DIR: true                             # 是否上传bin目录
+  UPLOAD_FIRMWARE: true                            # 是否上传固件
+  UPLOAD_RELEASE: true                             # 是否上传到Release
+  DIY_SH: diy.sh                                    # 自定义脚本文件
+  TZ: Asia/Shanghai                                # 时区设置
+
+# 定义构建作业
 jobs:
   build:
-    runs-on: Ubuntu-22.04
-#     if: github.event.repository.owner.id == github.event.sender.id
-    
+    runs-on: Ubuntu-22.04  # 运行在Ubuntu 22.04的虚拟机上
+
     steps:
-    - name: Checkout
+    - name: Checkout  # 检出代码
       uses: actions/checkout@main
 
-    - name: Initialization environment
+    - name: Initialization environment  # 初始化环境
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
+        # 清理不必要的文件和安装依赖
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL https://is.gd/depends_ubuntu_2204)
@@ -52,9 +46,10 @@ jobs:
         sudo timedatectl set-timezone "$TZ"
         sudo chmod 777 /mnt
 
-    - name: Clone source code
+    - name: Clone source code  # 克隆源代码
       working-directory: /mnt
       run: |
+        # 显示磁盘空间信息，克隆源代码并创建软链接
         df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /mnt/openwrt $GITHUB_WORKSPACE/openwrt
@@ -64,135 +59,45 @@ jobs:
         echo "useVersionInfo=$useVersionInfo" >> $GITHUB_ENV
         echo "VER=$VER" >> $GITHUB_ENV
 
-    - name: Cache
+    - name: Cache  # 使用缓存
       uses: klever1988/cachewrtbuild@main
       with:
         ccache: 'true'
         prefix: ${{ github.workspace }}/openwrt
 
-    - name: Update feeds
+    - name: Update feeds  # 更新feeds
       run: |
         cd openwrt
         ./scripts/feeds update -a && ./scripts/feeds install -a
 
-    - name: File Diy Patch
+    - name: File Diy Patch  # 应用自定义补丁
       run: |
         chmod +x $DIY_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_SH
 
-    - name: Generate configuration file
+    - name: Generate configuration file  # 生成配置文件
       run: |
         cd openwrt
         rm -f ./.config*
         touch ./.config
 
-        #
-        # ========================固件定制部分========================
-        # 
+        # 固件定制部分开始
+        # ...
 
-        # 
-        # 如果不对本区块做出任何编辑, 则生成默认配置固件. 
-        # 
+        # 固件定制部分结束
 
-        # 以下为定制化固件选项和说明:
-        #
-
-        #
-        # 有些插件/选项是默认开启的, 如果想要关闭, 请参照以下示例进行编写:
-        # 
-        #          =========================================
-        #         |  # 取消编译VMware镜像:                   |
-        #         |  cat >> .config <<EOF                   |
-        #         |  # CONFIG_VMDK_IMAGES is not set        |
-        #         |  EOF                                    |
-        #          =========================================
-        #
-
-        # 
-        # 以下是一些提前准备好的一些插件选项.
-        # 直接取消注释相应代码块即可应用. 不要取消注释代码块上的汉字说明.
-        # 如果不需要代码块里的某一项配置, 只需要删除相应行.
-        #
-        # 如果需要其他插件, 请按照示例自行添加.
-        # 注意, 只需添加依赖链顶端的包. 如果你需要插件 A, 同时 A 依赖 B, 即只需要添加 A.
-        # 
-        # 无论你想要对固件进行怎样的定制, 都需要且只需要修改 EOF 回环内的内容.
-        # 
-
-        # 编译NX30Pro固件:
-        cat >> .config <<EOF
-        CONFIG_TARGET_mediatek=y
-        CONFIG_TARGET_mediatek_filogic=y
-        CONFIG_TARGET_mediatek_filogic_DEVICE_h3c_magic-nx30-pro=y
-        EOF
-
-        # IPv6支持:
-        cat >> .config <<EOF
-        CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
-        CONFIG_PACKAGE_ip6tables=y
-        CONFIG_PACKAGE_ip6tables-extra=y
-        CONFIG_PACKAGE_ip6tables-mod-nat=y
-        CONFIG_PACKAGE_ipv6helper=y
-        EOF
-
-        # LuCI插件选择:
-        cat >> .config <<EOF
-        CONFIG_PACKAGE_luci-app-passwall=y
-        CONFIG_PACKAGE_luci-app-autoreboot=y
-        CONFIG_PACKAGE_luci-app-ddns=y
-        CONFIG_PACKAGE_luci-app-firewall=y
-        CONFIG_PACKAGE_luci-app-ssr-plus=y
-        CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Xray=y
-        CONFIG_PACKAGE_luci-app-smartdns=y
-        CONFIG_PACKAGE_luci-app-ttyd=y
-        CONFIG_PACKAGE_luci-app-webadmin=y
-        CONFIG_PACKAGE_luci-app-ramfree=y
-        CONFIG_PACKAGE_luci-app-upnp=y
-        CONFIG_PACKAGE_luci-app-vsftpd=y
-        CONFIG_PACKAGE_luci-app-vlmcsd=y
-        CONFIG_PACKAGE_luci-app-zerotier=y
-        CONFIG_PACKAGE_luci-app-sqm=y
-        EOF
-
-        # LuCI主题:
-        cat >> .config <<EOF
-        CONFIG_PACKAGE_luci-theme-argon=y
-        CONFIG_PACKAGE_luci-app-argon-config=y
-        EOF
-
-        # 常用软件包:
-        cat >> .config <<EOF
-        CONFIG_PACKAGE_autocore-arm=y
-        # CONFIG_DEFAULT_coremark is not set
-        # CONFIG_PACKAGE_samba4-libs is not set
-        # CONFIG_PACKAGE_samba4-server is not set
-        # CONFIG_PACKAGE_odhcpd is not set
-        # CONFIG_luci-app-samba is net set
-        # CONFIG_PACKAGE_luci-app-unblockmusic is net set
-        EOF
-
-        # 取消编译VMware镜像以及镜像填充 (不要删除被缩进的注释符号):
-        # cat >> .config <<EOF
-        # # CONFIG_TARGET_IMAGES_PAD is not set
-        # # CONFIG_VMDK_IMAGES is not set
-        # EOF
-
-        # 
-        # ========================固件定制部分结束========================
-        # 
-        
         sed -i 's/^[ \t]*//g' ./.config
         make defconfig
 
-    - name: SSH connection to Actions
+    - name: SSH connection to Actions  # SSH连接到Actions
       uses: P3TERX/ssh2actions@v1.0.0
       if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
       env:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
-    - name: Download package
+    - name: Download package  # 下载软件包
       id: package
       run: |
         cd openwrt
@@ -200,7 +105,7 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    - name: Compile the firmware
+    - name: Compile the firmware  # 编译固件
       id: compile
       run: |
         cd openwrt
@@ -211,18 +116,18 @@ jobs:
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-    - name: Check space usage
+    - name: Check space usage  # 检查空间使用情况
       if: (!cancelled())
       run: df -hT
 
-    - name: Upload bin directory
+    - name: Upload bin directory  # 上传bin目录
       uses: actions/upload-artifact@main
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
         name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: openwrt/bin
 
-    - name: Organize files
+    - name: Organize files  # 组织文件
       id: organize
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
@@ -235,20 +140,20 @@ jobs:
         echo "::set-output name=status::success"
         echo "::set-output name=release_tag::$(date +"%Y.%m.%d-%H%M")"
 
-    - name: Calculate MD5
+    - name: Calculate MD5  # 计算MD5
       run: |
         cd ${{ env.FIRMWARE }} && rm -rf sha256sums
         MD5=$(md5sum * | sed ':a;N;$!ba;s/\n/<br>/g')
         echo "MD5=$MD5" >> $GITHUB_ENV
 
-    - name: Upload firmware directory
+    - name: Upload firmware directory  # 上传固件目录
       uses: actions/upload-artifact@main
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
         name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
 
-    - name: Upload OpenWrt Firmware to Release
+    - name: Upload OpenWrt Firmware to Release  # 上传固件到Release
       id: release
       uses: ncipollo/release-action@main
       if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
@@ -264,24 +169,25 @@ jobs:
           - 版本号：${{ env.VER }}
           - 默认IP：192.168.10.1
           - 默认密码：password
-          - 当前使用版本:【编译前的最后一次[➦主源码](https://github.com/coolsnowwolf/lede)更新记录】
+          - 当前使用版本:【编译前的最后一次[➦主源码](https://github.com/coolsnowwolf/lede)更新记录】   
           - 下载后请仔细校验MD5，如不正确请重新下载
           ${{ env.useVersionInfo }}
           
           `md5sum`
           > ${{ env.MD5 }}
 
-    - name: Delete workflow runs
+    - name: Delete workflow runs  # 删除工作流运行记录
       uses: GitRML/delete-workflow-runs@main
       with:
         retain_days: 1
         keep_minimum_runs: 3
 
-    - name: Remove old Releases
+    - name: Remove old Releases  # 删除旧的Releases
       uses: dev-drprasad/delete-older-releases@master
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       with:
         keep_latest: 3
         delete_tags: true
+      env:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
